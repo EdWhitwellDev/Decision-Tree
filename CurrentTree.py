@@ -11,9 +11,6 @@ pd.options.mode.chained_assignment = None  # default='warn'
 # catagories that are not improved by splitting by that attribute are passed to a different node that will try to improve them without splitting up the data by that attribute first
 # they basically side step that split, however the next node selectes its split attribute based on its ability to predict the previously unimproved catagories.
 
-# this is still in development so there are a lot of optimizations to be made to make it run faster
-# the Solid, NotImproved, and Improved nodes won't be seperated at some point i only have them as seperate classes now to help with developing
-
 # at the moment the model gets 79.2% accuracy which is my best yet (with ML), and it does that without a forest, i am hoping to get it to 80% with only one tree by some point
 
 class Tree:
