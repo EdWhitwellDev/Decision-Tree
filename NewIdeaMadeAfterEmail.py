@@ -6,8 +6,10 @@ from statistics import mode
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
+# New method finally achieves 80% accuracy
+
 class Layer:
-    def __init__(self, UseableAttributes, DataPassedDown, Prediction = 0, BenchMark = 0.0, Depth = 0, MinSize = 2, MaxDepth = 3, Threshold = 0.48, CallIt = 1):
+    def __init__(self, UseableAttributes, DataPassedDown, Prediction = 0, BenchMark = 0.1, Depth = 0, MinSize = 3, MaxDepth = 3, Threshold = 0.45, CallIt = 1):
         self.Prediction = Prediction
         self.End = True
         self.BenchMark = BenchMark
@@ -66,7 +68,7 @@ class Layer:
         if self.End:
             for Index in range(len(self.UseSolid)):
                 if Passenger[self.UseSolid[Index][0]] == True:
-                    Prediction[self.UseSolid[Index][2]] += self.UseSolid[Index][1] * 2.5
+                    Prediction[self.UseSolid[Index][2]] += self.UseSolid[Index][1] * 2
 
             for Index in range(len(self.UseNotSolid)):
                 if Passenger[self.UseNotSolid[Index][0]] == True:
@@ -109,37 +111,34 @@ def LoadData():
     Full['Title'] = Full['Name'].str.split(', ').str[1].str.split('.').str[0]
     Full['Title'] = Full['Title'].map(Map)
 
-    #Full['Surname'] = Full['Name'].str.split(', ').str[0]
-
     Full['FamilySize'] = Full['SibSp'] + Full['Parch'] + 1
+
+    #Full['Surname'] = Full['Name'].str.split(', ').str[0]
+    #Full['FamilySurvived'] = Full.groupby(['Surname', 'FamilySize'])['Survived'].transform(lambda x: x.mean() > 0.5)
+
     Full['Age'] = Full.groupby(['Title', 'FamilySize'])['Age'].transform(lambda x: x.fillna(x.mean()))
     Full['Age'] = Full.groupby(['Title'])['Age'].transform(lambda x: x.fillna(x.mean()))
 
     Full['Embarked'] = Full.groupby(['Pclass'])['Embarked'].transform(lambda x: x.fillna(x.mode()[0]))
 
-    Full['Fare'] = Full.groupby(['Pclass', 'Title'])['Fare'].transform(lambda x: x.fillna(x.mean()))
-    Full['Mother'] = (Full['Sex'] == 'female') & (Full['Title'] == 'Mrs') & (Full['Parch'] > 0)
-    Full['Daughter'] = (Full['Sex'] == 'female') & (Full['Title'] == 'Miss') & (Full['Age'] < 16) & (Full['Parch'] > 0)
+    Full['Fare'] = Full.groupby(['Pclass', 'Title', 'Embarked'])['Fare'].transform(lambda x: x.fillna(x.mean()))
 
-    #Full['Cabin'] = Full['Cabin'].fillna('U')
+    Full['Cabin'] = Full['Cabin'].notnull()
     #Full['Cabin'] = Full['Cabin'].apply(lambda x: 'C' if x != 'U' else x)
-    Full = Full.drop(['Cabin'], axis =1 )
+    #Full = Full.drop(['Cabin'], axis =1 )
 
-    AgeGroups = [0, 5, 14, 20, 35, 45, 50, 100]
-    Full['AgeGroup'] = pd.cut(Full['Age'], bins = AgeGroups, labels = [0, 5, 14, 20, 35, 45, 50])
+    AgeGroups = [-0.1, 2, 12, 18, 30, 60, np.inf]
+    labels = ['baby', 'child', 'teenager', 'youngadult', 'adult', 'elderly']
+    Full['AgeGroup'] = pd.cut(Full['Age'], bins = AgeGroups, labels = labels)
 
-    FareGroups = [-0.1, 7.0, 14.454, 31, 55, 1000]
-    Full['FareGroup'] = pd.cut(Full['Fare'], bins = FareGroups, labels = [0.1, 1, 2, 3, 4])
+    Full['Mother'] = (Full['Sex'] == 'female') & (Full['Title'] == 'Mrs') & (Full['Parch'] > 0) & (Full['AgeGroup'].isin(['youngadult', 'adult']))
+    Full['Daughter'] = (Full['Sex'] == 'female') & (Full['Title'] == 'Miss') & (Full['AgeGroup'].isin(['baby', 'child', 'teenager'])) & (Full['Parch'] > 0)
+
+    Full['FareGroup'] = pd.qcut(Full['Fare'], 5)
 
     Full = Full.drop(['Age', 'Fare', 'Ticket', 'Name'], axis = 1)
 
-
-    Full['AgeGroup'] = Full['AgeGroup'].astype('int64')
-    Full['FareGroup'] = Full['FareGroup'].astype('int64')
-
-    #Full['LargeFamily'] = Full['FamilySize'] > 4
-
-    UsableColumns = Full.columns.copy().drop(['PassengerId', 'Survived', 'Train'])
+    UsableColumns = Full.columns.copy().drop(['PassengerId', 'Survived', 'Train', 'Cabin', 'Mother'])
     for Attribute in UsableColumns:
         Full = pd.concat([Full, pd.get_dummies(Full[Attribute], prefix = Attribute)], axis = 1)
         Full = Full.drop([Attribute], axis = 1)
