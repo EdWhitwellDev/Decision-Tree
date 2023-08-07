@@ -9,72 +9,60 @@ pd.options.mode.chained_assignment = None  # default='warn'
 # New method finally achieves 80% accuracy
 
 class Layer:
-    def __init__(self, UseableAttributes, DataPassedDown, Prediction = 0, BenchMark = 0.1, Depth = 0, MinSize = 3, MaxDepth = 3, Threshold = 0.45, CallIt = 1):
+    def __init__(self, UseableAttributes, DataPassedDown, ExclusiveAttributes, Prediction = 0, BenchMark = 0.1, Depth = 0, MinSize = 3, MaxDepth = 3, Threshold = 0.45, CallIt = 1):
         self.Prediction = Prediction
         self.End = True
         self.BenchMark = BenchMark
         if Depth == MaxDepth:
             self.End = False
             return
-
+        
+        DataPassedDown = DataPassedDown.reset_index(drop = True)
         Data = DataPassedDown.copy()
-        Data['ViablePrediction'] = 0
 
-        self.Solid, self.NotSoGood = [], []
+        ViablePrediction = np.zeros(len(Data))
+
+        self.UseSolid, NotSoGood = [], []
  
         for Attribute in UseableAttributes:
             TrueFor = Data.loc[Data[Attribute] == True]
             if len(TrueFor) < MinSize:
                 continue
-            Survived = TrueFor.loc[TrueFor['Survived'] == 1]
-            Ratio = len(Survived)/len(TrueFor)
+            Survived = sum(TrueFor['Survived'])
+            Ratio = Survived/len(TrueFor)
             Adjusted = abs(Ratio - 0.5)
             if Adjusted > Threshold:
-                self.Solid.append([Attribute, Adjusted, round(Ratio)])
+                self.UseSolid.append([Attribute, Adjusted, round(Ratio)])
+                ViablePrediction[TrueFor.index] = 1
             elif Adjusted > BenchMark:
-                self.NotSoGood.append([Attribute, Adjusted, round(Ratio)])
+                NotSoGood.append([Attribute, Adjusted, round(Ratio), TrueFor.index])
 
-        self.Solid.sort(key = lambda x: x[1], reverse = True)
-        self.NotSoGood.sort(key = lambda x: x[1], reverse = True)
+        NotSoGood.sort(key = lambda x: x[1], reverse = True)
+        NotSolid, self.NextLayers = 0, []
 
-        self.SolidPrediction = []
-
-        SolidIndex, NotSolid = 0, 0
-        while sum(Data['ViablePrediction']) < round(len(Data) * CallIt) and SolidIndex < len(self.Solid):
-            Data.loc[Data[self.Solid[SolidIndex][0]] == True, 'ViablePrediction'] = 1
-            self.SolidPrediction.append(self.Solid[SolidIndex][2])
-            SolidIndex += 1
-
-        while sum(Data['ViablePrediction']) < round(len(Data) * CallIt) and NotSolid < len(self.NotSoGood):
-            Data.loc[Data[self.NotSoGood[NotSolid][0]] == True, 'ViablePrediction'] = 1
+        while sum(ViablePrediction) < round(len(Data) * CallIt) and NotSolid < len(NotSoGood):
+            ViablePrediction[NotSoGood[NotSolid][3]] = 1
+            AttributesToUse = self.StripExclusiveAttributes(UseableAttributes.copy(), NotSoGood[NotSolid][0], ExclusiveAttributes)
+            self.NextLayers.append(Layer(AttributesToUse, DataPassedDown.iloc[NotSoGood[NotSolid][3]], ExclusiveAttributes, NotSoGood[NotSolid][2], NotSoGood[NotSolid][1], Depth+1))
             NotSolid += 1
+        self.UseNotSolid = NotSoGood[:NotSolid]
 
-        self.UseSolid = self.Solid[:SolidIndex]
-
-        self.UseNotSolid = self.NotSoGood[:NotSolid]
-
-        self.NextLayers = []
-
-
-        for Index in range(len(self.UseNotSolid)):
-            AttributesToUse = UseableAttributes.copy().drop([self.UseNotSolid[Index][0]])
-            DataToUse = DataPassedDown.loc[Data[self.UseNotSolid[Index][0]] == True]
-            NewLayer = Layer(AttributesToUse, DataToUse, self.UseNotSolid[Index][2], self.UseNotSolid[Index][1], Depth+1)
-            self.NextLayers.append(NewLayer)
+    def StripExclusiveAttributes(self, AttributeList, Attribute, ExclusiveAttributes = {}):
+        Core = Attribute.split('_')[0]
+        try:
+            Exclusive = ExclusiveAttributes[Core]
+            AttributeList = AttributeList.drop(Exclusive)
+        except:AttributeList = AttributeList.drop(Attribute)
+        return AttributeList
 
     def Predict(self, Passenger):
         Prediction = [0, 0]
         Prediction[self.Prediction] = Prediction[self.Prediction] + self.BenchMark
         if self.End:
             for Index in range(len(self.UseSolid)):
-                if Passenger[self.UseSolid[Index][0]] == True:
-                    Prediction[self.UseSolid[Index][2]] += self.UseSolid[Index][1] * 2
-
+                if Passenger[self.UseSolid[Index][0]] == True: Prediction[self.UseSolid[Index][2]] += self.UseSolid[Index][1] * 2
             for Index in range(len(self.UseNotSolid)):
-                if Passenger[self.UseNotSolid[Index][0]] == True:
-                    Prediction = np.add(Prediction, self.NextLayers[Index].Predict(Passenger))
-                    #print(Prediction)
-            
+                if Passenger[self.UseNotSolid[Index][0]] == True: Prediction = np.add(Prediction, self.NextLayers[Index].Predict(Passenger))
         return Prediction
 
 def LoadData():
@@ -113,9 +101,6 @@ def LoadData():
 
     Full['FamilySize'] = Full['SibSp'] + Full['Parch'] + 1
 
-    #Full['Surname'] = Full['Name'].str.split(', ').str[0]
-    #Full['FamilySurvived'] = Full.groupby(['Surname', 'FamilySize'])['Survived'].transform(lambda x: x.mean() > 0.5)
-
     Full['Age'] = Full.groupby(['Title', 'FamilySize'])['Age'].transform(lambda x: x.fillna(x.mean()))
     Full['Age'] = Full.groupby(['Title'])['Age'].transform(lambda x: x.fillna(x.mean()))
 
@@ -124,8 +109,6 @@ def LoadData():
     Full['Fare'] = Full.groupby(['Pclass', 'Title', 'Embarked'])['Fare'].transform(lambda x: x.fillna(x.mean()))
 
     Full['Cabin'] = Full['Cabin'].notnull()
-    #Full['Cabin'] = Full['Cabin'].apply(lambda x: 'C' if x != 'U' else x)
-    #Full = Full.drop(['Cabin'], axis =1 )
 
     AgeGroups = [-0.1, 2, 12, 18, 30, 60, np.inf]
     labels = ['baby', 'child', 'teenager', 'youngadult', 'adult', 'elderly']
@@ -139,9 +122,12 @@ def LoadData():
     Full = Full.drop(['Age', 'Fare', 'Ticket', 'Name'], axis = 1)
 
     UsableColumns = Full.columns.copy().drop(['PassengerId', 'Survived', 'Train', 'Cabin', 'Mother'])
+    Exclusive = {}
     for Attribute in UsableColumns:
+        Exclusive[Attribute] = []
         Full = pd.concat([Full, pd.get_dummies(Full[Attribute], prefix = Attribute)], axis = 1)
         Full = Full.drop([Attribute], axis = 1)
+        Exclusive[Attribute] = Full.columns[Full.columns.str.startswith(Attribute)]
 
     UsableColumns = Full.columns.copy().drop(['PassengerId', 'Survived', 'Train'])
 
@@ -149,7 +135,7 @@ def LoadData():
         if Attribute != 'PassengerId':
             Full[Attribute] = Full[Attribute].astype('bool')
 
-    return Full.loc[Full['Train'] == True], Full.loc[Full['Train'] == False]
+    return Full.loc[Full['Train'] == True], Full.loc[Full['Train'] == False], Exclusive
 
 def CompareToFullData(Prediction, Row):
     FullDataSet = pd.read_csv("FullData.csv")
@@ -180,10 +166,10 @@ def Test(TestData, Tree):
     print("Incorrect: ", Incorrect)
     print("Accuracy: ", (Correct/(Correct+Incorrect))*100, "%")
 
-TrainData, TestData = LoadData()
+TrainData, TestData, Exclusive = LoadData()
 
 UsableColumns = TrainData.columns.copy().drop(['PassengerId', 'Survived', 'Train'])
-
-FirstLayer = Layer(UsableColumns, TrainData)
-
+Start = time.time()
+FirstLayer = Layer(UsableColumns, TrainData, Exclusive)
+print("Completed In: ", time.time() - Start)
 Test(TestData, FirstLayer)
